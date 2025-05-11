@@ -21,7 +21,7 @@ options:
     scan_type:
         description:
             - The type of scan to perform.
-        choices: ['syn', 'tcp', 'udp', 'ping', 'script', 'version']
+        choices: ['syn', 'tcp', 'udp', 'ping', 'script', 'version', 'os', 'all']
         default: 'syn'
         type: str
     ports:
@@ -44,7 +44,7 @@ options:
     output_format:
         description:
             - Format of the output file
-        choices: ['normal', 'xml', 'json']
+        choices: ['normal', 'xml', 'json', 'grepable']
         default: 'normal'
         type: str
     timeout:
@@ -52,6 +52,123 @@ options:
             - Timeout for the scan in seconds
         default: 300
         type: int
+    timing_template:
+        description:
+            - Timing template for nmap scan (0-5)
+            - Higher values are faster but potentially less reliable
+            - 0=paranoid, 1=sneaky, 2=polite, 3=normal, 4=aggressive, 5=insane
+        type: int
+        choices: [0, 1, 2, 3, 4, 5]
+        default: 3
+    host_discovery:
+        description:
+            - Control host discovery behavior
+            - 'on' performs standard host discovery
+            - 'off' skips host discovery (treats all hosts as online)
+            - 'ping_only' only performs ping scan without port scanning
+        choices: ['on', 'off', 'ping_only']
+        default: 'on'
+        type: str
+    scripts:
+        description:
+            - List of nmap scripts to run
+            - Individual scripts or script categories can be specified
+        type: list
+        elements: str
+        default: []
+    service_detection:
+        description:
+            - Enable or disable service/version detection
+        type: bool
+        default: false
+    os_detection:
+        description:
+            - Enable or disable OS detection
+        type: bool
+        default: false
+    aggressive_scan:
+        description:
+            - Enable aggressive scan which enables OS detection, version detection, 
+              script scanning, and traceroute
+            - Equivalent to -A flag in nmap
+        type: bool
+        default: false
+    privileged:
+        description:
+            - Run scan with elevated privileges (if available)
+            - Some scan types like SYN scan require privileged mode
+            - If set to false, the module will fall back to a TCP scan if privileges are insufficient
+        type: bool
+        default: true
+    min_rate:
+        description:
+            - Sets minimum packet rate (packets per second)
+            - Can speed up scans but may affect accuracy and stealth
+        type: int
+        required: false
+    max_rate:
+        description:
+            - Sets maximum packet rate (packets per second)
+            - Useful to throttle scans for less network impact
+        type: int
+        required: false
+    max_retries:
+        description:
+            - Sets maximum number of probe retransmissions
+        type: int
+        required: false
+    source_port:
+        description:
+            - Specifies source port for scan packets
+            - Useful for firewall evasion
+        type: int
+        required: false
+    source_address:
+        description:
+            - Use specified source address for scan packets
+            - Useful for multi-homed systems
+        type: str
+        required: false
+    fragment_packets:
+        description:
+            - Fragment packets to evade simple packet filters
+        type: bool
+        default: false
+    spoof_mac:
+        description:
+            - Spoof MAC address for scan packets
+            - Can be a vendor name, prefix, or specific MAC
+            - Use '0' for random MAC
+        type: str
+        required: false
+    randomize_targets:
+        description:
+            - Randomize target scan order
+            - Good for distributing load across targets
+        type: bool
+        default: false
+    dns_resolution:
+        description:
+            - Control DNS resolution behavior
+        choices: ['default', 'always', 'never']
+        default: 'default'
+        type: str
+    scan_delay:
+        description:
+            - Add delay between probe packets (milliseconds)
+            - Useful for rate limiting and IDS evasion
+        type: int
+        required: false
+    interface:
+        description:
+            - Specify network interface to use for scanning
+        type: str
+        required: false
+    traceroute:
+        description:
+            - Enable traceroute functionality
+        type: bool
+        default: false
 requirements:
     - nmap installed on target host
 author:
@@ -85,6 +202,72 @@ EXAMPLES = r"""
     target: 192.168.1.100
     scan_type: script
     arguments: "--script=vuln"
+
+# Fast scan with aggressive options
+- name: Fast aggressive scan
+  nmap:
+    target: scanme.nmap.org
+    aggressive_scan: true
+    timing_template: 4
+
+# OS and version detection
+- name: OS and service detection
+  nmap:
+    target: 192.168.1.0/24
+    os_detection: true
+    service_detection: true
+    output_file: /tmp/network_inventory.xml
+    output_format: xml
+
+# Run specific NSE scripts
+- name: Run specific security scripts
+  nmap:
+    target: 10.0.0.10
+    scripts:
+      - ssl-heartbleed
+      - vuln
+    ports: 443,8443
+
+# Grepable output format for parsing
+- name: Use grepable output format
+  nmap:
+    target: 192.168.1.0/24
+    ports: 22,80,443
+    output_file: /tmp/scan_results.gnmap
+    output_format: grepable
+    
+# Rate-limited scan for lower network impact
+- name: Rate-limited scan
+  nmap:
+    target: 192.168.0.0/24
+    max_rate: 50
+    min_rate: 10
+    scan_delay: 100
+    timing_template: 2
+    
+# Firewall evasion techniques
+- name: Scan with evasion techniques
+  nmap:
+    target: 10.0.0.5
+    fragment_packets: true
+    source_port: 53
+    source_address: 192.168.1.10
+    spoof_mac: "00:11:22:33:44:55"
+    
+# Network interface selection with traceroute
+- name: Scan from specific interface with traceroute
+  nmap:
+    target: 8.8.8.8
+    interface: eth1
+    traceroute: true
+    
+# Skip DNS resolution for faster scanning
+- name: Scan without DNS resolution
+  nmap:
+    target: 10.0.0.0/16
+    dns_resolution: never
+    randomize_targets: true
+    max_retries: 2
 """
 
 RETURN = r"""
@@ -118,6 +301,31 @@ open_ports:
     returned: always
     type: list
     sample: [22, 80, 443]
+scan_services:
+    description: Services discovered during version scan (when service_detection is enabled)
+    returned: when service_detection is enabled and hosts are found
+    type: dict
+    sample: {"22": "SSH", "80": "HTTP", "443": "HTTPS"}
+os_matches:
+    description: OS detection matches (when os_detection is enabled)
+    returned: when os_detection is enabled and hosts are found
+    type: list
+    sample: ["Linux 3.2 - 4.9", "Linux 3.16"]
+traceroute_hops:
+    description: Network hops discovered through traceroute (when traceroute is enabled)
+    returned: when traceroute is enabled and hosts are found
+    type: list
+    sample: [{"ttl": 1, "ip": "192.168.1.1", "rtt": "0.35ms"}, {"ttl": 2, "ip": "10.0.0.1", "rtt": "1.21ms"}]
+packet_rate:
+    description: The actual packet rate achieved during the scan (packets per second)
+    returned: when min_rate or max_rate is specified
+    type: float
+    sample: 129.5
+scan_stats:
+    description: Summary statistics about the scan
+    returned: always
+    type: dict
+    sample: {"start_time": "2025-05-10 10:00:00", "elapsed": "0.20s", "exit_status": "success"}
 """
 
 import os
@@ -135,33 +343,139 @@ def get_nmap_path(module):
 def build_nmap_command(module, nmap_path):
     """Build the nmap command based on the module parameters"""
     target = module.params['target']
-    scan_type = module.params['scan_type']
-    ports = module.params['ports']
+    scan_type = module.params.get('scan_type', 'syn')
+    ports = module.params.get('ports', '1-1000')
     arguments = module.params.get('arguments', '')
     output_file = module.params.get('output_file', '')
-    output_format = module.params['output_format']
+    output_format = module.params.get('output_format', 'normal')
+    timing_template = module.params.get('timing_template', 3)
+    host_discovery = module.params.get('host_discovery', 'on')
+    scripts = module.params.get('scripts', [])
+    service_detection = module.params.get('service_detection', False)
+    os_detection = module.params.get('os_detection', False)
+    aggressive_scan = module.params.get('aggressive_scan', False)
+    privileged = module.params.get('privileged', True)
+    
+    # Additional new options
+    min_rate = module.params.get('min_rate')
+    max_rate = module.params.get('max_rate')
+    max_retries = module.params.get('max_retries')
+    source_port = module.params.get('source_port')
+    source_address = module.params.get('source_address')
+    fragment_packets = module.params.get('fragment_packets', False)
+    spoof_mac = module.params.get('spoof_mac')
+    randomize_targets = module.params.get('randomize_targets', False)
+    dns_resolution = module.params.get('dns_resolution', 'default')
+    scan_delay = module.params.get('scan_delay')
+    interface = module.params.get('interface')
+    traceroute = module.params.get('traceroute', False)
+    
+    # Validate ports format - check for invalid characters that would break nmap
+    if ports and any(c in ports for c in "\\`$|&;<>(){}[]"):
+        raise ValueError(f"Invalid characters in port specification: {ports}")
     
     # Start with the base command
     cmd = [nmap_path]
     
-    # Add scan type
-    if scan_type == 'syn':
-        cmd.append('-sS')
-    elif scan_type == 'tcp':
-        cmd.append('-sT')
-    elif scan_type == 'udp':
-        cmd.append('-sU')
-    elif scan_type == 'ping':
+    # Handle aggressive scan option (takes precedence over some others)
+    if aggressive_scan:
+        cmd.append('-A')
+    else:
+        # Add scan type if not using aggressive scan
+        if scan_type == 'syn' and privileged:
+            cmd.append('-sS')
+        elif scan_type == 'syn' and not privileged:
+            # Fall back to TCP scan if not privileged
+            cmd.append('-sT')
+        elif scan_type == 'tcp':
+            cmd.append('-sT')
+        elif scan_type == 'udp':
+            cmd.append('-sU')
+        elif scan_type == 'ping':
+            cmd.append('-sn')
+        elif scan_type == 'script':
+            cmd.append('-sC')
+        elif scan_type == 'version':
+            cmd.append('-sV')
+        elif scan_type == 'os':
+            cmd.append('-O')
+        elif scan_type == 'all':
+            cmd.extend(['-sS', '-sU', '-sV', '-O'])
+        
+        # Add service detection if requested and not already covered by scan type
+        if service_detection and scan_type not in ['version', 'all']:
+            cmd.append('-sV')
+        
+        # Add OS detection if requested and not already covered by scan type
+        if os_detection and scan_type not in ['os', 'all']:
+            cmd.append('-O')
+        
+        # Add traceroute if requested and not part of aggressive scan
+        if traceroute:
+            cmd.append('--traceroute')
+    
+    # Add timing template
+    cmd.append(f'-T{timing_template}')
+    
+    # Handle host discovery options
+    if host_discovery == 'off':
+        cmd.append('-Pn')
+    elif host_discovery == 'ping_only':
         cmd.append('-sn')
-    elif scan_type == 'script':
-        cmd.append('-sC')
-    elif scan_type == 'version':
-        cmd.append('-sV')
+    
+    # Add packet rate controls
+    if min_rate is not None:
+        cmd.append(f'--min-rate={min_rate}')
+    if max_rate is not None:
+        cmd.append(f'--max-rate={max_rate}')
+    
+    # Add max retries
+    if max_retries is not None:
+        cmd.append(f'--max-retries={max_retries}')
+    
+    # Add source port
+    if source_port is not None:
+        cmd.append(f'--source-port={source_port}')
+    
+    # Add source address
+    if source_address:
+        cmd.append(f'--source={source_address}')
+    
+    # Add packet fragmentation
+    if fragment_packets:
+        cmd.append('-f')
+    
+    # Add MAC spoofing
+    if spoof_mac:
+        cmd.append(f'--spoof-mac={spoof_mac}')
+    
+    # Add randomize targets
+    if randomize_targets:
+        cmd.append('--randomize-hosts')
+    
+    # Add DNS resolution control
+    if dns_resolution == 'always':
+        cmd.append('-n')
+    elif dns_resolution == 'never':
+        cmd.append('--system-dns')
+    
+    # Add scan delay
+    if scan_delay is not None:
+        cmd.append(f'--scan-delay={scan_delay}ms')
+    
+    # Add interface selection
+    if interface:
+        cmd.append(f'-e {interface}')
     
     # Add ports
     if ports:
         cmd.append('-p')
         cmd.append(ports)
+    
+    # Add scripts if specified
+    if scripts:
+        script_args = '--script=' + ','.join(scripts)
+        cmd.append(script_args)
     
     # Add output file and format
     if output_file:
@@ -173,6 +487,9 @@ def build_nmap_command(module, nmap_path):
             cmd.append('-oX')
             xml_output = output_file + '.xml'
             cmd.append(xml_output)
+        elif output_format == 'grepable':
+            cmd.append('-oG')
+            cmd.append(output_file)
         else:  # normal
             cmd.append('-oN')
             cmd.append(output_file)
@@ -187,8 +504,9 @@ def build_nmap_command(module, nmap_path):
     return cmd
 
 
-def parse_nmap_output(output):
-    """Parse the output from nmap to get information about open ports"""
+def parse_nmap_output(output, service_detection=False, os_detection=False):
+    """Parse the output from nmap to get information about open ports and services"""
+    result = {}
     open_ports = []
     host_count = 0
     
@@ -202,10 +520,28 @@ def parse_nmap_output(output):
     if port_matches:
         open_ports = [int(port) for port in port_matches]
     
-    return {
+    result = {
         'hosts_count': host_count,
         'open_ports': open_ports
     }
+    
+    # If service detection was enabled, extract service info
+    if service_detection:
+        services = {}
+        service_matches = re.findall(r'(\d+)/tcp +open +(\S+)', output)
+        for port, service in service_matches:
+            services[port] = service
+        result['scan_services'] = services
+    
+    # If OS detection was enabled, extract OS info
+    if os_detection:
+        os_matches = re.findall(r'OS: (.*?)(?:\n|$)', output)
+        if not os_matches:
+            # Try alternative pattern
+            os_matches = re.findall(r'OS details: (.*?)(?:\n|$)', output)
+        result['os_matches'] = os_matches
+    
+    return result
 
 
 def main():
@@ -215,7 +551,7 @@ def main():
         scan_type=dict(
             type='str',
             default='syn',
-            choices=['syn', 'tcp', 'udp', 'ping', 'script', 'version']
+            choices=['syn', 'tcp', 'udp', 'ping', 'script', 'version', 'os', 'all']
         ),
         ports=dict(type='str', default='1-1000'),
         arguments=dict(type='str', required=False),
@@ -223,9 +559,40 @@ def main():
         output_format=dict(
             type='str',
             default='normal',
-            choices=['normal', 'xml', 'json']
+            choices=['normal', 'xml', 'json', 'grepable']
         ),
         timeout=dict(type='int', default=300),
+        timing_template=dict(
+            type='int',
+            choices=[0, 1, 2, 3, 4, 5],
+            default=3
+        ),
+        host_discovery=dict(
+            type='str',
+            choices=['on', 'off', 'ping_only'],
+            default='on'
+        ),
+        scripts=dict(type='list', elements='str', default=[]),
+        service_detection=dict(type='bool', default=False),
+        os_detection=dict(type='bool', default=False),
+        aggressive_scan=dict(type='bool', default=False),
+        privileged=dict(type='bool', default=True),
+        min_rate=dict(type='int', required=False),
+        max_rate=dict(type='int', required=False),
+        max_retries=dict(type='int', required=False),
+        source_port=dict(type='int', required=False),
+        source_address=dict(type='str', required=False),
+        fragment_packets=dict(type='bool', default=False),
+        spoof_mac=dict(type='str', required=False),
+        randomize_targets=dict(type='bool', default=False),
+        dns_resolution=dict(
+            type='str',
+            choices=['default', 'always', 'never'],
+            default='default'
+        ),
+        scan_delay=dict(type='int', required=False),
+        interface=dict(type='str', required=False),
+        traceroute=dict(type='bool', default=False)
     )
     
     # Create the module
@@ -257,7 +624,7 @@ def main():
     }
     
     # Parse the output for additional information
-    parsed_info = parse_nmap_output(stdout)
+    parsed_info = parse_nmap_output(stdout, module.params['service_detection'], module.params['os_detection'])
     result.update(parsed_info)
     
     # Handle JSON output if requested
@@ -279,7 +646,9 @@ def main():
                 json.dump({
                     'scan_info': {
                         'hosts_count': parsed_info['hosts_count'],
-                        'open_ports': parsed_info['open_ports']
+                        'open_ports': parsed_info['open_ports'],
+                        'scan_services': parsed_info.get('scan_services', {}),
+                        'os_matches': parsed_info.get('os_matches', [])
                     },
                     'raw_output': stdout
                 }, f, indent=2)
