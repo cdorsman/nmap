@@ -19,22 +19,83 @@ An Ansible module for running NMap network scanning operations as part of your a
 
 ## Installation
 
-To use this module in your Ansible project:
+There are several ways to use this NMap module in your Ansible projects:
+
+### Method 1: Local Module Installation
+
+The simplest approach for a single project:
+
+1. Create a `library` directory in your Ansible project (if it doesn't exist):
+   ```bash
+   mkdir -p /path/to/your/ansible/project/library
+   ```
+
+2. Copy the module to your project's library directory:
+   ```bash
+   cp library/nmap.py /path/to/your/ansible/project/library/
+   ```
+
+### Method 2: Using Environment Variables
+
+For temporary use across multiple projects:
 
 1. Clone this repository:
-   ```
+   ```bash
    git clone https://github.com/yourusername/ansible-nmap.git
    ```
 
-2. Copy the module to your Ansible project:
-   ```
-   cp ansible-nmap/library/nmap.py /path/to/your/ansible/project/library/
+2. Set the `ANSIBLE_LIBRARY` environment variable to point to the library directory:
+   ```bash
+   export ANSIBLE_LIBRARY=/path/to/ansible-nmap/library:$ANSIBLE_LIBRARY
    ```
 
-3. Alternatively, set the `ANSIBLE_LIBRARY` environment variable:
+### Method 3: Configuration File
+
+For persistent use across multiple projects:
+
+1. Clone this repository to a permanent location:
+   ```bash
+   git clone https://github.com/yourusername/ansible-nmap.git /opt/ansible-nmap
    ```
-   export ANSIBLE_LIBRARY=/path/to/ansible-nmap/library
+
+2. Add the module path to your Ansible configuration file (`ansible.cfg`):
+   ```ini
+   [defaults]
+   library = /opt/ansible-nmap/library:~/.ansible/plugins/modules:/usr/share/ansible/plugins/modules
    ```
+
+### Method 4: Ansible Galaxy Collection (Coming Soon)
+
+We're working on packaging this as an Ansible Galaxy collection for easier distribution and installation.
+
+### Prerequisites Installation
+
+Ensure NMap is installed on the target systems:
+
+#### For Debian/Ubuntu:
+```bash
+sudo apt update
+sudo apt install nmap
+```
+
+#### For RHEL/CentOS/Fedora:
+```bash
+sudo dnf install nmap
+# or
+sudo yum install nmap
+```
+
+#### For macOS:
+```bash
+brew install nmap
+```
+
+#### Verifying Installation
+
+To verify that NMap is installed correctly:
+```bash
+nmap --version
+```
 
 ## Usage
 
@@ -118,6 +179,32 @@ The module includes a comprehensive test suite using pytest:
 ```
 source venv/bin/activate
 python -m pytest
+```
+
+#### Test Structure
+
+The test suite is organized into several categories:
+
+- **Unit Tests** (`test_nmap.py`): Tests individual functions in isolation
+- **Smoke Tests** (`test_nmap_smoke.py`): Quick basic tests that verify core functionality
+- **Functional Tests** (`test_nmap_functional.py`): Tests that verify module functionality
+- **Integration Tests** (`test_nmap_integration.py`): Tests that verify integration with the system
+- **Regression Tests** (`test_nmap_regression.py`): Tests that verify fixes for specific bugs
+
+#### Expected Test Failures
+
+The test suite includes several "antipattern" test classes that demonstrate bad testing practices. These tests are **intentionally designed to fail** as educational examples of what not to do in tests:
+
+- `TestNmapModuleAntipatterns`: Demonstrates bad unit testing practices
+- `TestNmapFunctionalAntipatterns`: Demonstrates bad functional testing practices
+- `TestNmapSmokeAntipatterns`: Demonstrates bad smoke testing practices
+
+When running the test suite, expect these antipattern tests to fail. This is normal and by design. The real tests should pass successfully.
+
+If you want to run only the actual tests (without the antipatterns), use:
+
+```
+python -m pytest -k "not Antipatterns"
 ```
 
 ## License
