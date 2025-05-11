@@ -2,7 +2,13 @@
 # -*- coding: utf-8 -*-
 
 from __future__ import absolute_import, division, print_function
+
 __metaclass__ = type
+
+# Import all required modules at the top of the file
+import os
+import json
+from ansible.module_utils.basic import AnsibleModule
 
 DOCUMENTATION = r"""
 ---
@@ -88,7 +94,7 @@ options:
         default: false
     aggressive_scan:
         description:
-            - Enable aggressive scan which enables OS detection, version detection, 
+            - Enable aggressive scan which enables OS detection, version detection,
               script scanning, and traceroute
             - Equivalent to -A flag in nmap
         type: bool
@@ -328,345 +334,419 @@ scan_stats:
     sample: {"start_time": "2025-05-10 10:00:00", "elapsed": "0.20s", "exit_status": "success"}
 """
 
-import os
-import re
-import json
-from ansible.module_utils.basic import AnsibleModule
-
 
 def get_nmap_path(module):
     """Find the path to the nmap executable"""
-    nmap_path = module.get_bin_path('nmap', required=True)
-    return nmap_path
+    try:
+        # Try to find nmap in the PATH
+        nmap_path = module.get_bin_path("nmap", required=True)
+        return nmap_path
+    except Exception as e:
+        # Fall back to common system paths if we're in a test environment
+        import os
+        common_paths = [
+            "/usr/bin/nmap", 
+            "/usr/local/bin/nmap",
+            "/bin/nmap",
+            # Add more common paths as needed
+        ]
+        for path in common_paths:
+            if os.path.isfile(path) and os.access(path, os.X_OK):
+                return path
+        
+        # If we get here, re-raise the original exception
+        raise e
 
 
 def build_nmap_command(module, nmap_path):
     """Build the nmap command based on the module parameters"""
-    target = module.params['target']
-    scan_type = module.params.get('scan_type', 'syn')
-    ports = module.params.get('ports', '1-1000')
-    arguments = module.params.get('arguments', '')
-    output_file = module.params.get('output_file', '')
-    output_format = module.params.get('output_format', 'normal')
-    timing_template = module.params.get('timing_template', 3)
-    host_discovery = module.params.get('host_discovery', 'on')
-    scripts = module.params.get('scripts', [])
-    service_detection = module.params.get('service_detection', False)
-    os_detection = module.params.get('os_detection', False)
-    aggressive_scan = module.params.get('aggressive_scan', False)
-    privileged = module.params.get('privileged', True)
-    
+    target = module.params["target"]
+    scan_type = module.params.get("scan_type", "syn")
+    ports = module.params.get("ports", "1-1000")
+    arguments = module.params.get("arguments", "")
+    output_file = module.params.get("output_file", "")
+    output_format = module.params.get("output_format", "normal")
+    timing_template = module.params.get("timing_template", 3)
+    host_discovery = module.params.get("host_discovery", "on")
+    scripts = module.params.get("scripts", [])
+    service_detection = module.params.get("service_detection", False)
+    os_detection = module.params.get("os_detection", False)
+    aggressive_scan = module.params.get("aggressive_scan", False)
+    privileged = module.params.get("privileged", True)
+
     # Additional new options
-    min_rate = module.params.get('min_rate')
-    max_rate = module.params.get('max_rate')
-    max_retries = module.params.get('max_retries')
-    source_port = module.params.get('source_port')
-    source_address = module.params.get('source_address')
-    fragment_packets = module.params.get('fragment_packets', False)
-    spoof_mac = module.params.get('spoof_mac')
-    randomize_targets = module.params.get('randomize_targets', False)
-    dns_resolution = module.params.get('dns_resolution', 'default')
-    scan_delay = module.params.get('scan_delay')
-    interface = module.params.get('interface')
-    traceroute = module.params.get('traceroute', False)
-    
+    min_rate = module.params.get("min_rate")
+    max_rate = module.params.get("max_rate")
+    max_retries = module.params.get("max_retries")
+    source_port = module.params.get("source_port")
+    source_address = module.params.get("source_address")
+    fragment_packets = module.params.get("fragment_packets", False)
+    spoof_mac = module.params.get("spoof_mac")
+    randomize_targets = module.params.get("randomize_targets", False)
+    dns_resolution = module.params.get("dns_resolution", "default")
+    scan_delay = module.params.get("scan_delay")
+    interface = module.params.get("interface")
+    traceroute = module.params.get("traceroute", False)
+
     # Validate ports format - check for invalid characters that would break nmap
     if ports and any(c in ports for c in "\\`$|&;<>(){}[]"):
         raise ValueError(f"Invalid characters in port specification: {ports}")
-    
+
     # Start with the base command
     cmd = [nmap_path]
-    
+
     # Handle aggressive scan option (takes precedence over some others)
     if aggressive_scan:
-        cmd.append('-A')
+        cmd.append("-A")
     else:
         # Add scan type if not using aggressive scan
-        if scan_type == 'syn' and privileged:
-            cmd.append('-sS')
-        elif scan_type == 'syn' and not privileged:
+        if scan_type == "syn" and privileged:
+            cmd.append("-sS")
+        elif scan_type == "syn" and not privileged:
             # Fall back to TCP scan if not privileged
-            cmd.append('-sT')
-        elif scan_type == 'tcp':
-            cmd.append('-sT')
-        elif scan_type == 'udp':
-            cmd.append('-sU')
-        elif scan_type == 'ping':
-            cmd.append('-sn')
-        elif scan_type == 'script':
-            cmd.append('-sC')
-        elif scan_type == 'version':
-            cmd.append('-sV')
-        elif scan_type == 'os':
-            cmd.append('-O')
-        elif scan_type == 'all':
-            cmd.extend(['-sS', '-sU', '-sV', '-O'])
-        
+            cmd.append("-sT")
+        elif scan_type == "tcp":
+            cmd.append("-sT")
+        elif scan_type == "udp":
+            cmd.append("-sU")
+        elif scan_type == "ping":
+            cmd.append("-sn")
+        elif scan_type == "script":
+            cmd.append("-sC")
+        elif scan_type == "version":
+            cmd.append("-sV")
+        elif scan_type == "os":
+            cmd.append("-O")
+        elif scan_type == "all":
+            cmd.extend(["-sS", "-sU", "-sV", "-O"])
+
         # Add service detection if requested and not already covered by scan type
-        if service_detection and scan_type not in ['version', 'all']:
-            cmd.append('-sV')
-        
+        if service_detection and scan_type not in ["version", "all"]:
+            cmd.append("-sV")
+
         # Add OS detection if requested and not already covered by scan type
-        if os_detection and scan_type not in ['os', 'all']:
-            cmd.append('-O')
-        
+        if os_detection and scan_type not in ["os", "all"]:
+            cmd.append("-O")
+
         # Add traceroute if requested and not part of aggressive scan
         if traceroute:
-            cmd.append('--traceroute')
-    
+            cmd.append("--traceroute")
+
     # Add timing template
-    cmd.append(f'-T{timing_template}')
-    
+    cmd.append(f"-T{timing_template}")
+
     # Handle host discovery options
-    if host_discovery == 'off':
-        cmd.append('-Pn')
-    elif host_discovery == 'ping_only':
-        cmd.append('-sn')
-    
+    if host_discovery == "off":
+        cmd.append("-Pn")
+    elif host_discovery == "ping_only":
+        cmd.append("-sn")
+
     # Add packet rate controls
     if min_rate is not None:
-        cmd.append(f'--min-rate={min_rate}')
+        cmd.append(f"--min-rate={min_rate}")
     if max_rate is not None:
-        cmd.append(f'--max-rate={max_rate}')
-    
+        cmd.append(f"--max-rate={max_rate}")
+
     # Add max retries
     if max_retries is not None:
-        cmd.append(f'--max-retries={max_retries}')
-    
+        cmd.append(f"--max-retries={max_retries}")
+
     # Add source port
     if source_port is not None:
-        cmd.append(f'--source-port={source_port}')
-    
+        cmd.append(f"--source-port={source_port}")
+
     # Add source address
     if source_address:
-        cmd.append(f'--source={source_address}')
-    
+        cmd.append(f"--source={source_address}")
+
     # Add packet fragmentation
     if fragment_packets:
-        cmd.append('-f')
-    
+        cmd.append("-f")
+
     # Add MAC spoofing
     if spoof_mac:
-        cmd.append(f'--spoof-mac={spoof_mac}')
-    
+        cmd.append(f"--spoof-mac={spoof_mac}")
+
     # Add randomize targets
     if randomize_targets:
-        cmd.append('--randomize-hosts')
-    
+        cmd.append("--randomize-hosts")
+
     # Add DNS resolution control
-    if dns_resolution == 'always':
-        cmd.append('-n')
-    elif dns_resolution == 'never':
-        cmd.append('--system-dns')
-    
+    if dns_resolution == "always":
+        cmd.append("-n")
+    elif dns_resolution == "never":
+        cmd.append("--system-dns")
+
     # Add scan delay
     if scan_delay is not None:
-        cmd.append(f'--scan-delay={scan_delay}ms')
-    
+        cmd.append(f"--scan-delay={scan_delay}ms")
+
     # Add interface selection
     if interface:
-        cmd.append(f'-e {interface}')
-    
+        cmd.append("-e")
+        cmd.append(interface)
+
     # Add ports
     if ports:
-        cmd.append('-p')
+        cmd.append("-p")
         cmd.append(ports)
-    
+
     # Add scripts if specified
     if scripts:
-        script_args = '--script=' + ','.join(scripts)
+        script_args = "--script=" + ",".join(scripts)
         cmd.append(script_args)
-    
+
     # Add output file and format
     if output_file:
-        if output_format == 'xml':
-            cmd.append('-oX')
+        if output_format == "xml":
+            cmd.append("-oX")
             cmd.append(output_file)
-        elif output_format == 'json':
+        elif output_format == "json":
             # nmap doesn't have native JSON output, so use XML and we'll convert it
-            cmd.append('-oX')
-            xml_output = output_file + '.xml'
+            cmd.append("-oX")
+            xml_output = output_file + ".xml"
             cmd.append(xml_output)
-        elif output_format == 'grepable':
-            cmd.append('-oG')
+        elif output_format == "grepable":
+            cmd.append("-oG")
             cmd.append(output_file)
         else:  # normal
-            cmd.append('-oN')
+            cmd.append("-oN")
             cmd.append(output_file)
-    
+
     # Add additional arguments
     if arguments:
         cmd.extend(arguments.split())
-    
+
     # Add target
     cmd.append(target)
-    
+
     return cmd
 
 
-def parse_nmap_output(output, service_detection=False, os_detection=False):
-    """Parse the output from nmap to get information about open ports and services"""
-    result = {}
+def parse_nmap_output(stdout, service_detection=False, os_detection=False):
+    """
+    Parse nmap output and extract relevant information.
+
+    Args:
+        stdout (str): The stdout from the nmap command.
+        service_detection (bool): Whether service detection was enabled.
+        os_detection (bool): Whether OS detection was enabled.
+
+    Returns:
+        dict: A dictionary containing the parsed information.
+    """
+    result = {"hosts_count": 0, "open_ports": []}
+
+    # Find all open ports
     open_ports = []
-    host_count = 0
-    
-    # Count hosts
-    host_matches = re.findall(r'Nmap scan report for', output)
-    if host_matches:
-        host_count = len(host_matches)
-    
-    # Find open ports
-    port_matches = re.findall(r'(\d+)/[a-z]+ +open', output)
-    if port_matches:
-        open_ports = [int(port) for port in port_matches]
-    
-    result = {
-        'hosts_count': host_count,
-        'open_ports': open_ports
-    }
-    
-    # If service detection was enabled, extract service info
+    for line in stdout.splitlines():
+        if "/tcp" in line or "/udp" in line:
+            if "open" in line:
+                parts = line.split()
+                if len(parts) >= 2:
+                    port_with_proto = parts[0]
+                    port_num = port_with_proto.split("/")[0]
+                    try:
+                        open_ports.append(int(port_num))
+                    except ValueError:
+                        pass  # Skip if we can't parse the port as an integer
+
+    # Count hosts that are up
+    hosts_count = 0
+    for line in stdout.splitlines():
+        if "host up" in line.lower():
+            hosts_count += 1
+
+    # Extract service information if it was requested
     if service_detection:
-        services = {}
-        service_matches = re.findall(r'(\d+)/tcp +open +(\S+)', output)
-        for port, service in service_matches:
-            services[port] = service
-        result['scan_services'] = services
-    
-    # If OS detection was enabled, extract OS info
+        scan_services = {}
+        for line in stdout.splitlines():
+            if "/tcp" in line or "/udp" in line:
+                if "open" in line:
+                    parts = line.split()
+                    if len(parts) >= 3:
+                        port_with_proto = parts[0]
+                        port_num = port_with_proto.split("/")[0]
+                        service_name = parts[2]
+                        scan_services[port_num] = service_name
+        result["scan_services"] = scan_services
+
+    # Extract OS information if it was requested
     if os_detection:
-        os_matches = re.findall(r'OS: (.*?)(?:\n|$)', output)
-        if not os_matches:
-            # Try alternative pattern
-            os_matches = re.findall(r'OS details: (.*?)(?:\n|$)', output)
-        result['os_matches'] = os_matches
-    
+        os_matches = []
+        capture_os = False
+        for line in stdout.splitlines():
+            if "OS details:" in line:
+                os_details = line.split("OS details:")[1].strip()
+                os_matches.append(os_details)
+                capture_os = False
+            elif "Running:" in line:
+                os_running = line.split("Running:")[1].strip()
+                os_matches.append(os_running)
+            elif "Device type:" in line:
+                capture_os = True
+            elif capture_os and line.strip() and "Network Distance" not in line:
+                os_matches.append(line.strip())
+
+        result["os_matches"] = os_matches
+
+    # Extract traceroute information if present
+    traceroute_lines = []
+    capture_traceroute = False
+    for line in stdout.splitlines():
+        if "TRACEROUTE" in line:
+            capture_traceroute = True
+            continue
+        elif capture_traceroute and line.strip():
+            if "Nmap done:" in line:
+                capture_traceroute = False
+                continue
+            if "HOP" in line and "RTT" in line and "ADDRESS" in line:
+                continue
+            traceroute_lines.append(line.strip())
+
+    if traceroute_lines:
+        result["traceroute"] = traceroute_lines
+
+    # Set the results
+    result["hosts_count"] = hosts_count
+    result["open_ports"] = sorted(open_ports)
+
     return result
+
+
+def create_json_output(json_file, parsed_info, stdout):
+    """
+    Create a JSON output file with scan results.
+
+    Args:
+        json_file (str): Path to the JSON output file
+        parsed_info (dict): Parsed scan information
+        stdout (str): Raw nmap output
+
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    try:
+        # Create JSON data structure
+        json_data = {
+            "scan_info": {
+                "hosts_count": parsed_info["hosts_count"],
+                "open_ports": parsed_info["open_ports"],
+                "scan_services": parsed_info.get("scan_services", {}),
+                "os_matches": parsed_info.get("os_matches", []),
+            },
+            "raw_output": stdout,
+        }
+
+        # Write JSON to file
+        with open(json_file, "w") as f:
+            json.dump(json_data, f, indent=2)
+        return True
+    except Exception:
+        # Log errors but don't crash, return False to indicate failure
+        return False
 
 
 def main():
     # Define the module arguments
     module_args = dict(
-        target=dict(type='str', required=True),
+        target=dict(type="str", required=True),
         scan_type=dict(
-            type='str',
-            default='syn',
-            choices=['syn', 'tcp', 'udp', 'ping', 'script', 'version', 'os', 'all']
+            type="str",
+            default="syn",
+            choices=["syn", "tcp", "udp", "ping", "script", "version", "os", "all"],
         ),
-        ports=dict(type='str', default='1-1000'),
-        arguments=dict(type='str', required=False),
-        output_file=dict(type='str', required=False),
+        ports=dict(type="str", default="1-1000"),
+        arguments=dict(type="str", required=False),
+        output_file=dict(type="str", required=False),
         output_format=dict(
-            type='str',
-            default='normal',
-            choices=['normal', 'xml', 'json', 'grepable']
+            type="str", default="normal", choices=["normal", "xml", "json", "grepable"]
         ),
-        timeout=dict(type='int', default=300),
-        timing_template=dict(
-            type='int',
-            choices=[0, 1, 2, 3, 4, 5],
-            default=3
-        ),
+        timeout=dict(type="int", default=300),
+        timing_template=dict(type="int", choices=[0, 1, 2, 3, 4, 5], default=3),
         host_discovery=dict(
-            type='str',
-            choices=['on', 'off', 'ping_only'],
-            default='on'
+            type="str", choices=["on", "off", "ping_only"], default="on"
         ),
-        scripts=dict(type='list', elements='str', default=[]),
-        service_detection=dict(type='bool', default=False),
-        os_detection=dict(type='bool', default=False),
-        aggressive_scan=dict(type='bool', default=False),
-        privileged=dict(type='bool', default=True),
-        min_rate=dict(type='int', required=False),
-        max_rate=dict(type='int', required=False),
-        max_retries=dict(type='int', required=False),
-        source_port=dict(type='int', required=False),
-        source_address=dict(type='str', required=False),
-        fragment_packets=dict(type='bool', default=False),
-        spoof_mac=dict(type='str', required=False),
-        randomize_targets=dict(type='bool', default=False),
+        scripts=dict(type="list", elements="str", default=[]),
+        service_detection=dict(type="bool", default=False),
+        os_detection=dict(type="bool", default=False),
+        aggressive_scan=dict(type="bool", default=False),
+        privileged=dict(type="bool", default=True),
+        min_rate=dict(type="int", required=False),
+        max_rate=dict(type="int", required=False),
+        max_retries=dict(type="int", required=False),
+        source_port=dict(type="int", required=False),
+        source_address=dict(type="str", required=False),
+        fragment_packets=dict(type="bool", default=False),
+        spoof_mac=dict(type="str", required=False),
+        randomize_targets=dict(type="bool", default=False),
         dns_resolution=dict(
-            type='str',
-            choices=['default', 'always', 'never'],
-            default='default'
+            type="str", choices=["default", "always", "never"], default="default"
         ),
-        scan_delay=dict(type='int', required=False),
-        interface=dict(type='str', required=False),
-        traceroute=dict(type='bool', default=False)
+        scan_delay=dict(type="int", required=False),
+        interface=dict(type="str", required=False),
+        traceroute=dict(type="bool", default=False),
     )
-    
+
     # Create the module
-    module = AnsibleModule(
-        argument_spec=module_args,
-        supports_check_mode=True
-    )
-    
+    module = AnsibleModule(argument_spec=module_args, supports_check_mode=True)
+
     # Check if running in check mode
     if module.check_mode:
         module.exit_json(changed=False, msg="Module would run nmap scan against target")
-    
+
     # Get the nmap executable path
     nmap_path = get_nmap_path(module)
-    
+
     # Build the command
     cmd = build_nmap_command(module, nmap_path)
-    
+
     # Run the command
     rc, stdout, stderr = module.run_command(cmd, use_unsafe_shell=False)
-    
+
     # Process the results
     result = {
-        'changed': True,
-        'command': ' '.join(cmd),
-        'stdout': stdout,
-        'stderr': stderr,
-        'rc': rc,
+        "changed": True,
+        "command": " ".join(cmd),
+        "stdout": stdout,
+        "stderr": stderr,
+        "rc": rc,
     }
-    
+
     # Parse the output for additional information
-    parsed_info = parse_nmap_output(stdout, module.params['service_detection'], module.params['os_detection'])
+    parsed_info = parse_nmap_output(
+        stdout, module.params["service_detection"], module.params["os_detection"]
+    )
     result.update(parsed_info)
-    
+
     # Handle JSON output if requested
-    if (module.params.get('output_file') and 
-        module.params.get('output_format') == 'json' and
-        rc == 0):
-        try:
-            # The temporary XML file
-            xml_file = module.params['output_file'] + '.xml'
-            # The final JSON file
-            json_file = module.params['output_file']
-            
-            # Here we would convert the XML to JSON
-            # This is a simplified version - in a real module you'd want to use
-            # a proper XML parser to convert to JSON
-            
-            # For now, let's just create a simple JSON file with the parsed results
-            with open(json_file, 'w') as f:
-                json.dump({
-                    'scan_info': {
-                        'hosts_count': parsed_info['hosts_count'],
-                        'open_ports': parsed_info['open_ports'],
-                        'scan_services': parsed_info.get('scan_services', {}),
-                        'os_matches': parsed_info.get('os_matches', [])
-                    },
-                    'raw_output': stdout
-                }, f, indent=2)
-            
-            # Clean up the temporary XML file
-            if os.path.exists(xml_file):
-                os.remove(xml_file)
-                
-        except Exception as e:
-            module.fail_json(msg=f"Failed to create JSON output: {str(e)}")
-    
+    if (
+        module.params.get("output_file")
+        and module.params.get("output_format") == "json"
+        and rc == 0
+    ):
+        # The temporary XML file
+        xml_file = module.params["output_file"] + ".xml"
+        # The final JSON file
+        json_file = module.params["output_file"]
+
+        # Create JSON file with scan results
+        success = create_json_output(json_file, parsed_info, stdout)
+        if not success:
+            module.fail_json(msg="Failed to create JSON output file", **result)
+
+        # Clean up the temporary XML file
+        if os.path.exists(xml_file):
+            os.remove(xml_file)
+
     # Check if the command failed
     if rc != 0:
         module.fail_json(msg="Nmap scan failed", **result)
-    
+
     # Return the result
     module.exit_json(**result)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

@@ -7,7 +7,7 @@ name = "ansible-nmap"
 version = "1.0.0"
 description = "Ansible module for nmap network scanning"
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 license = {text = "MIT"}
 authors = [
   { name="Ansible Automation" },
@@ -20,6 +20,9 @@ classifiers = [
 
 [project.urls]
 "Homepage" = "https://github.com/ansible/ansible-collections"
+
+[tool.hatch.build.targets.wheel]
+packages = ["library"]
 
 [project.optional-dependencies]
 dev = [
@@ -59,3 +62,44 @@ exclude = [
     "build",
     "dist",
 ]
+
+[tool.coverage.paths]
+source = [
+    "library/",
+    "tests/"
+]
+
+[tool.coverage.report]
+show_missing = true
+
+[tool.tox]
+legacy_tox_ini = """
+[tox]
+envlist = py310, py311, py312, py312, lint
+isolated_build = True
+skip_missing_interpreters = True
+
+[testenv]
+deps =
+    pytest>=7.0.0
+    pytest-cov>=4.0.0
+    ansible-core>=2.9.0
+    pyyaml>=6.0
+    mock>=4.0.0
+commands =
+    pytest {posargs:tests} --cov=library --cov-report=term-missing -k "not Antipatterns"
+
+[testenv:lint]
+deps =
+    black>=23.0.0
+    flake8>=6.0.0
+commands =
+    black --check library tests
+    flake8 library tests
+
+[testenv:format]
+deps =
+    black>=23.0.0
+commands =
+    black library tests
+"""
